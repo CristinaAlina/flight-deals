@@ -35,6 +35,56 @@ class FlightSearch:
     def search_flight(self, origin_city_code, destination_city_code, from_date, to_date, currency) -> FlightData:
         """Searches for the cheaper flight to specific location and returns a FlightData type if data was found,
         or None otherwise."""
+        response_request = self.get_request_search_flight(origin_city_code=origin_city_code,
+                                                          destination_city_code=destination_city_code,
+                                                          from_date=from_date,
+                                                          to_date=to_date,
+                                                          currency=currency,
+                                                          max_stopovers=1)
+
+        # Set a default value in case of result with direct flight
+        max_stopovers = 0
+        via_city = ""
+
+        if response_request.status_code == 200:
+            try:
+                search_data = response_request.json()["data"][0]
+            except IndexError:
+                response_request = self.get_request_search_flight(origin_city_code=origin_city_code,
+                                                                  destination_city_code=destination_city_code,
+                                                                  from_date=from_date,
+                                                                  to_date=to_date,
+                                                                  currency=currency,
+                                                                  max_stopovers=1)
+                try:
+                    search_data = response_request.json()["data"][0]
+
+                    # Modify max_stopovers and via_city for flight with one stop
+                    max_stopovers = 1
+                    via_city = search_data["route"][0]["cityTo"]
+
+                except IndexError:
+                    return None
+
+            flight_data = FlightData(
+                price=search_data["price"],
+                from_airport_code=search_data["flyFrom"],
+                from_city=search_data["cityFrom"],
+                to_airport_code=search_data["flyTo"],
+                to_city=search_data["cityTo"],
+                departure_date=search_data["route"][0]["local_departure"].split("T")[0],
+                arrival_date=search_data["route"][1]["local_departure"].split("T")[0],
+                stop_overs=max_stopovers,
+                via_city=via_city
+            )
+
+            return flight_data
+        elif response_request.status_code == 422:
+            return None
+        else:
+            response_request.raise_for_status()
+
+    def get_request_search_flight(self, origin_city_code, destination_city_code, from_date, to_date, currency, max_stopovers=0):
         search_endpoint = f"{self.kiwi_endpoint}/v2/search"
 
         body_query = {
@@ -47,24 +97,12 @@ class FlightSearch:
             "curr": currency,
             "adults": 2,
             "one_for_city": 1,
-            "max_stopovers": 0
+            "max_stopovers": max_stopovers
         }
         response = requests.get(url=search_endpoint, params=body_query, headers=HEADERS)
-        if response.status_code == 200:
-            search_data = response.json()["data"][0]
 
-            flight_data = FlightData(
-                price=search_data["price"],
-                from_airport_code=search_data["flyFrom"],
-                from_city=search_data["cityFrom"],
-                to_airport_code=search_data["flyTo"],
-                to_city=search_data["cityTo"],
-                departure_date=search_data["route"][0]["local_departure"].split("T")[0],
-                arrival_date=search_data["route"][1]["local_departure"].split("T")[0]
-            )
+        return response
 
-            return flight_data
-        elif response.status_code == 422:
-            return None
-        else:
-            response.raise_for_status()
+
+
+
